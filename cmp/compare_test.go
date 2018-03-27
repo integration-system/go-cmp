@@ -44,6 +44,7 @@ func TestDiff(t *testing.T) {
 	tests = append(tests, transformerTests()...)
 	tests = append(tests, embeddedTests()...)
 	tests = append(tests, methodTests()...)
+	tests = append(tests, cycleTests()...)
 	tests = append(tests, project1Tests()...)
 	tests = append(tests, project2Tests()...)
 	tests = append(tests, project3Tests()...)
@@ -1551,6 +1552,36 @@ func methodTests() []test {
 		label: label + "AssignD",
 		x:     ts.AssignD(make(chan bool)),
 		y:     ts.AssignD(make(chan bool)),
+	}}
+}
+
+func cycleTests() []test {
+	const label = "Cycle"
+
+	type A *A
+	graphA := new(A)
+	*graphA = graphA
+
+	type B []B
+	graphB := B{nil}
+	graphB[0] = graphB
+
+	type C map[int]C
+	graphC := C{0: nil}
+	graphC[0] = graphC
+
+	return []test{{
+		label: label,
+		x:     graphA,
+		y:     graphA,
+	}, {
+		label: label,
+		x:     graphB,
+		y:     graphB,
+	}, {
+		label: label,
+		x:     graphC,
+		y:     graphC,
 	}}
 }
 

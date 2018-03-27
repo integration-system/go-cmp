@@ -89,6 +89,14 @@ type EqualFunc func(ix int, iy int) Result
 // NDiff is the number of sub-elements that are not equal.
 type Result struct{ NSame, NDiff int }
 
+// BoolResult returns a Result that is either Equal or not Equal.
+func BoolResult(b bool) Result {
+	if b {
+		return Result{NSame: 1} // Equal, Similar
+	}
+	return Result{NDiff: 2} // Not Equal, not Similar
+}
+
 // Equal indicates whether the symbols are equal. Two symbols are equal
 // if and only if NDiff == 0. If Equal, then they are also Similar.
 func (r Result) Equal() bool { return r.NDiff == 0 }

@@ -82,6 +82,12 @@ var nothing = reflect.Value{}
 // To equate empty slices and maps, consider using cmpopts.EquateEmpty.
 // Map keys are equal according to the == operator.
 // To use custom comparisons for map keys, consider using cmpopts.SortMaps.
+//
+// When recursing into a pointer, slice, or map, the current path is checked
+// to detect whether the address for the given pointer, slice element,
+// or map has already been visited. If there is a cycle, then the pointed to
+// values are considered equal only if both addresses were previously visited
+// in the same path step.
 func Equal(x, y interface{}, opts ...Option) bool {
 	s := newState(opts)
 	s.compareAny(reflect.ValueOf(x), reflect.ValueOf(y))
@@ -111,6 +117,7 @@ type state struct {
 	// Calling statelessCompare must not result in observable changes to these.
 	result   diff.Result // The current result of comparison
 	curPath  Path        // The current path in the value tree
+	curPtrs  pointerPath // The current set of visited pointers
 	reporter reporter    // Optional reporter used for difference formatting
 
 	// recChecker checks for infinite cycles applying the same set of
@@ -128,6 +135,7 @@ type state struct {
 
 func newState(opts []Option) *state {
 	s := new(state)
+	s.curPtrs.Init()
 	for _, opt := range opts {
 		s.processOption(opt)
 	}
@@ -170,9 +178,9 @@ func (s *state) processOption(opt Option) {
 // This function is stateless in that it does not alter the current result,
 // or output to any registered reporters.
 func (s *state) statelessCompare(vx, vy reflect.Value) diff.Result {
-	// We do not save and restore the curPath because all of the compareX
-	// methods should properly push and pop from the path.
-	// It is an implementation bug if the contents of curPath differs from
+	// We do not save and restore curPath and curPtrs because all of the
+	// compareX methods should properly push and pop from them.
+	// It is an implementation bug if the contents of the paths differ from
 	// when calling this function to when returning from it.
 
 	oldResult, oldReporter := s.result, s.reporter
@@ -185,7 +193,6 @@ func (s *state) statelessCompare(vx, vy reflect.Value) diff.Result {
 }
 
 func (s *state) compareAny(vx, vy reflect.Value) {
-	// TODO: Support cyclic data structures.
 	s.recChecker.Check(s.curPath)
 
 	// Rule 0: Differing types are never equal.
@@ -247,6 +254,13 @@ func (s *state) compareAny(vx, vy reflect.Value) {
 		}
 		s.curPath.push(&indirect{pathStep{t.Elem()}})
 		defer s.curPath.pop()
+
+		if eq, visited := s.curPtrs.Push(vx, vy); visited {
+			s.report(eq, vx, vy)
+			return
+		}
+		defer s.curPtrs.Pop(vx, vy)
+
 		s.compareAny(vx.Elem(), vy.Elem())
 		return
 	case reflect.Interface:
@@ -267,6 +281,16 @@ func (s *state) compareAny(vx, vy reflect.Value) {
 			s.report(vx.IsNil() && vy.IsNil(), vx, vy)
 			return
 		}
+
+		// NOTE: It is incorrect to call s.curPtrs.Push here as a slice is
+		// functionally a collection of pointers, rather than a single pointer.
+		// The pointer checking logic must be handled on a per-element basis
+		// in s.compareArray.
+		//
+		// For example v[:0] and v[:1] have the same slice pointer,
+		// but they are clearly different values. Using the slice pointer
+		// violates the assumption that equal pointers implies equal values.
+
 		fallthrough
 	case reflect.Array:
 		s.compareArray(vx, vy, t)
@@ -399,14 +423,9 @@ func (s *state) compareArray(vx, vy reflect.Value, t reflect.Type) {
 	step := &sliceIndex{pathStep{t.Elem()}, 0, 0}
 	s.curPath.push(step)
 
-	// Compute an edit-script for slices vx and vy.
-	es := diff.Difference(vx.Len(), vy.Len(), func(ix, iy int) diff.Result {
-		step.xkey, step.ykey = ix, iy
-		return s.statelessCompare(vx.Index(ix), vy.Index(iy))
-	})
-
-	// Report the entire slice as is if the arrays are of primitive kind,
-	// and the arrays are different enough.
+	// Checking element pointers is necessary for slices of non-primitives,
+	// as they may contain slices that sub-slice some parent slice.
+	// The elements of a slice are always addressable.
 	isPrimitive := false
 	switch t.Elem().Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
@@ -414,6 +433,24 @@ func (s *state) compareArray(vx, vy reflect.Value, t reflect.Type) {
 		reflect.Bool, reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128:
 		isPrimitive = true
 	}
+	checkPointer := t.Kind() == reflect.Slice && !isPrimitive
+
+	// Compute an edit-script for slices vx and vy.
+	es := diff.Difference(vx.Len(), vy.Len(), func(ix, iy int) diff.Result {
+		step.xkey, step.ykey = ix, iy
+		vvx, vvy := vx.Index(ix), vy.Index(iy)
+		if checkPointer {
+			px, py := vvx.Addr(), vvy.Addr()
+			if eq, visited := s.curPtrs.Push(px, py); visited {
+				return diff.BoolResult(eq)
+			}
+			defer s.curPtrs.Pop(px, py)
+		}
+		return s.statelessCompare(vvx, vvy)
+	})
+
+	// Report the entire slice as is if the arrays are of primitive kind,
+	// and the arrays are different enough.
 	if isPrimitive && es.Dist() > (vx.Len()+vy.Len())/4 {
 		s.curPath.pop() // Pop first since we are reporting the whole slice
 		s.report(false, vx, vy)
@@ -434,10 +471,21 @@ func (s *state) compareArray(vx, vy reflect.Value, t reflect.Type) {
 			iy++
 		default:
 			step.xkey, step.ykey = ix, iy
+			vvx, vvy := vx.Index(ix), vy.Index(iy)
 			if e == diff.Identity {
-				s.report(true, vx.Index(ix), vy.Index(iy))
+				s.report(true, vvx, vvy)
 			} else {
-				s.compareAny(vx.Index(ix), vy.Index(iy))
+				if checkPointer {
+					px, py := vvx.Addr(), vvy.Addr()
+					if eq, visited := s.curPtrs.Push(px, py); visited {
+						s.report(eq, vvx, vvy)
+					} else {
+						s.compareAny(vvx, vvy)
+						s.curPtrs.Pop(px, py)
+					}
+				} else {
+					s.compareAny(vvx, vvy)
+				}
 			}
 			ix++
 			iy++
@@ -452,6 +500,12 @@ func (s *state) compareMap(vx, vy reflect.Value, t reflect.Type) {
 		s.report(vx.IsNil() && vy.IsNil(), vx, vy)
 		return
 	}
+
+	if eq, visited := s.curPtrs.Push(vx, vy); visited {
+		s.report(eq, vx, vy)
+		return
+	}
+	defer s.curPtrs.Pop(vx, vy)
 
 	// We combine and sort the two map keys so that we can perform the
 	// comparisons in a deterministic order.
