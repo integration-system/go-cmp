@@ -1,6 +1,6 @@
 # Package for equality of Go values
 
-[![GoDoc](https://godoc.org/github.com/google/go-cmp/cmp?status.svg)][godoc]
+[![GoDoc](https://godoc.org/github.com/d1slike/go-cmp/cmp?status.svg)][godoc]
 [![Build Status](https://travis-ci.org/google/go-cmp.svg?branch=master)][travis]
 
 This package is intended to be a more powerful and safer alternative to
@@ -28,17 +28,17 @@ See the [GoDoc documentation][godoc] for more information.
 
 This is not an official Google product.
 
-[godoc]: https://godoc.org/github.com/google/go-cmp/cmp
+[godoc]: https://godoc.org/github.com/d1slike/go-cmp/cmp
 [travis]: https://travis-ci.org/google/go-cmp
 
 ## Install
 
 ```
-go get -u github.com/google/go-cmp/cmp
+go get -u github.com/d1slike/go-cmp/cmp
 ```
 
 ## License
 
 BSD - See [LICENSE][license] file
 
-[license]: https://github.com/google/go-cmp/blob/master/LICENSE
+[license]: https://github.com/d1slike/go-cmp/blob/master/LICENSE
