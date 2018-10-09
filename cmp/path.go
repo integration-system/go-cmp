@@ -30,6 +30,7 @@ type (
 	PathStep interface {
 		String() string
 		Type() reflect.Type // Resulting type after performing the path step
+		ToJSON() string
 		isPathStep()
 	}
 
@@ -126,6 +127,16 @@ func (pa Path) String() string {
 	for _, s := range pa {
 		if _, ok := s.(*structField); ok {
 			ss = append(ss, s.String())
+		}
+	}
+	return strings.TrimPrefix(strings.Join(ss, ""), ".")
+}
+
+func (pa Path) ToJSON() string {
+	var ss []string
+	for _, s := range pa {
+		if jsPath := s.ToJSON(); jsPath != "" {
+			ss = append(ss, jsPath)
 		}
 	}
 	return strings.TrimPrefix(strings.Join(ss, ""), ".")
@@ -231,6 +242,9 @@ func (ps pathStep) String() string {
 	}
 	return fmt.Sprintf("{%s}", s)
 }
+func (ps pathStep) ToJSON() string {
+	return ""
+}
 
 func (si sliceIndex) String() string {
 	switch {
@@ -252,6 +266,24 @@ func (ta typeAssertion) String() string { return fmt.Sprintf(".(%v)", ta.typ) }
 func (sf structField) String() string   { return fmt.Sprintf(".%s", sf.name) }
 func (in indirect) String() string      { return "*" }
 func (tf transform) String() string     { return fmt.Sprintf("%s()", tf.trans.name) }
+
+func (si sliceIndex) ToJSON() string {
+	switch {
+	case si.xkey == si.ykey:
+		return fmt.Sprintf("[%d]", si.xkey)
+	case si.ykey == -1:
+		return fmt.Sprintf("[%d]", si.xkey)
+	case si.xkey == -1:
+		return fmt.Sprintf("[%d]", si.ykey)
+	default:
+		return ""
+	}
+}
+func (mi mapIndex) ToJSON() string      { return fmt.Sprintf(".%s", mi.key.String()) }
+func (ta typeAssertion) ToJSON() string { return fmt.Sprintf(".(%v)", ta.typ) }
+func (sf structField) ToJSON() string   { return fmt.Sprintf(".%s", sf.name) }
+func (in indirect) ToJSON() string      { return "*" }
+func (tf transform) ToJSON() string     { return fmt.Sprintf("%s()", tf.trans.name) }
 
 func (si sliceIndex) Key() int {
 	if si.xkey != si.ykey {
