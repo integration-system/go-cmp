@@ -20,7 +20,7 @@ type defaultReporter struct {
 	nlines int      // Number of lines in diffs
 }
 
-var _ reporter = (*defaultReporter)(nil)
+var _ Reporter = (*defaultReporter)(nil)
 
 func (r *defaultReporter) Report(x, y reflect.Value, eq bool, p Path) {
 	if eq {

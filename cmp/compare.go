@@ -109,9 +109,9 @@ func Diff(x, y interface{}, opts ...Option) string {
 type state struct {
 	// These fields represent the "comparison state".
 	// Calling statelessCompare must not result in observable changes to these.
-	result   diff.Result // The current result of comparison
-	curPath  Path        // The current path in the value tree
-	reporter reporter    // Optional reporter used for difference formatting
+	result    diff.Result // The current result of comparison
+	curPath   Path        // The current path in the value tree
+	reporters []Reporter  // Optional reporters used for difference formatting
 
 	// recChecker checks for infinite cycles applying the same set of
 	// transformers upon the output of itself.
@@ -156,11 +156,8 @@ func (s *state) processOption(opt Option) {
 		for t := range opt {
 			s.exporters[t] = true
 		}
-	case reporter:
-		if s.reporter != nil {
-			panic("difference reporter already registered")
-		}
-		s.reporter = opt
+	case Reporter:
+		s.reporters = append(s.reporters, opt)
 	default:
 		panic(fmt.Sprintf("unknown option %T", opt))
 	}
@@ -175,12 +172,12 @@ func (s *state) statelessCompare(vx, vy reflect.Value) diff.Result {
 	// It is an implementation bug if the contents of curPath differs from
 	// when calling this function to when returning from it.
 
-	oldResult, oldReporter := s.result, s.reporter
+	oldResult, oldReporter := s.result, s.reporters
 	s.result = diff.Result{} // Reset result
-	s.reporter = nil         // Remove reporter to avoid spurious printouts
+	s.reporters = nil        // Remove reporter to avoid spurious printouts
 	s.compareAny(vx, vy)
 	res := s.result
-	s.result, s.reporter = oldResult, oldReporter
+	s.result, s.reporters = oldResult, oldReporter
 	return res
 }
 
@@ -519,8 +516,8 @@ func (s *state) report(eq bool, vx, vy reflect.Value) {
 	} else {
 		s.result.NDiff++
 	}
-	if s.reporter != nil {
-		s.reporter.Report(vx, vy, eq, s.curPath)
+	for _, r := range s.reporters {
+		r.Report(vx, vy, eq, s.curPath)
 	}
 }
 

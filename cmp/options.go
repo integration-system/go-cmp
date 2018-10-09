@@ -378,8 +378,8 @@ func (visibleStructs) filter(_ *state, _, _ reflect.Value, _ reflect.Type) appli
 }
 
 // reporter is an Option that configures how differences are reported.
-type reporter interface {
-	// TODO: Not exported yet.
+type Reporter interface {
+	//
 	//
 	// Perhaps add PushStep and PopStep and change Report to only accept
 	// a PathStep instead of the full-path? Adding a PushStep and PopStep makes
