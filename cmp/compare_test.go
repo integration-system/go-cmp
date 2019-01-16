@@ -20,10 +20,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/d1slike/go-cmp/cmp"
-	"github.com/d1slike/go-cmp/cmp/cmpopts"
-	pb "github.com/d1slike/go-cmp/cmp/internal/testprotos"
-	ts "github.com/d1slike/go-cmp/cmp/internal/teststructs"
+	"github.com/integration-system/go-cmp/cmp"
+	"github.com/integration-system/go-cmp/cmp/cmpopts"
+	pb "github.com/integration-system/go-cmp/cmp/internal/testprotos"
+	ts "github.com/integration-system/go-cmp/cmp/internal/teststructs"
 )
 
 var now = time.Now()

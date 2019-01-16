@@ -1,1 +1,1 @@
-module github.com/d1slike/go-cmp
+module github.com/integration-system/go-cmp

@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/d1slike/go-cmp/cmp"
+	"github.com/integration-system/go-cmp/cmp"
 )
 
 type (

@@ -31,9 +31,9 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/d1slike/go-cmp/cmp/internal/diff"
-	"github.com/d1slike/go-cmp/cmp/internal/function"
-	"github.com/d1slike/go-cmp/cmp/internal/value"
+	"github.com/integration-system/go-cmp/cmp/internal/diff"
+	"github.com/integration-system/go-cmp/cmp/internal/function"
+	"github.com/integration-system/go-cmp/cmp/internal/value"
 )
 
 // BUG(dsnet): Maps with keys containing NaN values cannot be properly compared due to

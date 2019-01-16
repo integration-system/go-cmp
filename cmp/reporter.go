@@ -9,7 +9,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/d1slike/go-cmp/cmp/internal/value"
+	"github.com/integration-system/go-cmp/cmp/internal/value"
 )
 
 type defaultReporter struct {

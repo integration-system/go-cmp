@@ -9,7 +9,7 @@ import (
 	"math"
 	"reflect"
 
-	"github.com/d1slike/go-cmp/cmp"
+	"github.com/integration-system/go-cmp/cmp"
 )
 
 func equateAlways(_, _ interface{}) bool { return true }

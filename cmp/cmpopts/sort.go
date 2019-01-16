@@ -9,8 +9,8 @@ import (
 	"reflect"
 	"sort"
 
-	"github.com/d1slike/go-cmp/cmp"
-	"github.com/d1slike/go-cmp/cmp/internal/function"
+	"github.com/integration-system/go-cmp/cmp"
+	"github.com/integration-system/go-cmp/cmp/internal/function"
 )
 
 // SortSlices returns a Transformer option that sorts all []V.
