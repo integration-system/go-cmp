@@ -84,7 +84,7 @@ var nothing = reflect.Value{}
 // To use custom comparisons for map keys, consider using cmpopts.SortMaps.
 func Equal(x, y interface{}, opts ...Option) bool {
 	s := newState(opts)
-	s.compareAny(reflect.ValueOf(x), reflect.ValueOf(y))
+	s.compareAny(reflect.ValueOf(x), reflect.ValueOf(y), nothing, nothing)
 	return s.result.Equal()
 }
 
@@ -166,7 +166,7 @@ func (s *state) processOption(opt Option) {
 // statelessCompare compares two values and returns the result.
 // This function is stateless in that it does not alter the current result,
 // or output to any registered reporters.
-func (s *state) statelessCompare(vx, vy reflect.Value) diff.Result {
+func (s *state) statelessCompare(vx, vy, parentX, parentY reflect.Value) diff.Result {
 	// We do not save and restore the curPath because all of the compareX
 	// methods should properly push and pop from the path.
 	// It is an implementation bug if the contents of curPath differs from
@@ -175,13 +175,13 @@ func (s *state) statelessCompare(vx, vy reflect.Value) diff.Result {
 	oldResult, oldReporter := s.result, s.reporters
 	s.result = diff.Result{} // Reset result
 	s.reporters = nil        // Remove reporter to avoid spurious printouts
-	s.compareAny(vx, vy)
+	s.compareAny(vx, vy, parentX, parentY)
 	res := s.result
 	s.result, s.reporters = oldResult, oldReporter
 	return res
 }
 
-func (s *state) compareAny(vx, vy reflect.Value) {
+func (s *state) compareAny(vx, vy, parentX, parentY reflect.Value) {
 	// TODO: Support cyclic data structures.
 	s.recChecker.Check(s.curPath)
 
@@ -196,13 +196,13 @@ func (s *state) compareAny(vx, vy reflect.Value) {
 	}
 	t := vx.Type()
 	if len(s.curPath) == 0 {
-		s.curPath.push(&pathStep{typ: t})
+		s.curPath.push(&pathStep{typ: t, parentX: parentX, parentY: parentY})
 		defer s.curPath.pop()
 	}
 	vx, vy = s.tryExporting(vx, vy)
 
 	// Rule 1: Check whether an option applies on this node in the value tree.
-	if s.tryOptions(vx, vy, t) {
+	if s.tryOptions(vx, vy, parentX, parentY, t) {
 		return
 	}
 
@@ -242,9 +242,9 @@ func (s *state) compareAny(vx, vy reflect.Value) {
 			s.report(vx.IsNil() && vy.IsNil(), vx, vy)
 			return
 		}
-		s.curPath.push(&indirect{pathStep{t.Elem()}})
+		s.curPath.push(&indirect{pathStep{t.Elem(), parentX, parentY}})
 		defer s.curPath.pop()
-		s.compareAny(vx.Elem(), vy.Elem())
+		s.compareAny(vx.Elem(), vy.Elem(), parentX, parentY)
 		return
 	case reflect.Interface:
 		if vx.IsNil() || vy.IsNil() {
@@ -255,9 +255,9 @@ func (s *state) compareAny(vx, vy reflect.Value) {
 			s.report(false, vx.Elem(), vy.Elem())
 			return
 		}
-		s.curPath.push(&typeAssertion{pathStep{vx.Elem().Type()}})
+		s.curPath.push(&typeAssertion{pathStep{vx.Elem().Type(), parentX, parentY}})
 		defer s.curPath.pop()
-		s.compareAny(vx.Elem(), vy.Elem())
+		s.compareAny(vx.Elem(), vy.Elem(), parentX, parentY)
 		return
 	case reflect.Slice:
 		if vx.IsNil() || vy.IsNil() {
@@ -266,13 +266,13 @@ func (s *state) compareAny(vx, vy reflect.Value) {
 		}
 		fallthrough
 	case reflect.Array:
-		s.compareArray(vx, vy, t)
+		s.compareArray(vx, vy, parentX, parentY, t)
 		return
 	case reflect.Map:
-		s.compareMap(vx, vy, t)
+		s.compareMap(vx, vy, parentX, parentY, t)
 		return
 	case reflect.Struct:
-		s.compareStruct(vx, vy, t)
+		s.compareStruct(vx, vy, parentX, parentY, t)
 		return
 	default:
 		panic(fmt.Sprintf("%v kind not handled", t.Kind()))
@@ -296,7 +296,7 @@ func (s *state) tryExporting(vx, vy reflect.Value) (reflect.Value, reflect.Value
 	return vx, vy
 }
 
-func (s *state) tryOptions(vx, vy reflect.Value, t reflect.Type) bool {
+func (s *state) tryOptions(vx, vy, parentX, parentY reflect.Value, t reflect.Type) bool {
 	// If there were no FilterValues, we will not detect invalid inputs,
 	// so manually check for them and append invalid if necessary.
 	// We still evaluate the options since an ignore can override invalid.
@@ -307,7 +307,7 @@ func (s *state) tryOptions(vx, vy reflect.Value, t reflect.Type) bool {
 
 	// Evaluate all filters and apply the remaining options.
 	if opt := opts.filter(s, vx, vy, t); opt != nil {
-		opt.apply(s, vx, vy)
+		opt.apply(s, vx, vy, parentX, parentY)
 		return true
 	}
 	return false
@@ -337,10 +337,10 @@ func (s *state) callTRFunc(f, v reflect.Value) reflect.Value {
 	c := make(chan reflect.Value)
 	go detectRaces(c, f, v)
 	want := f.Call([]reflect.Value{v})[0]
-	if got := <-c; !s.statelessCompare(got, want).Equal() {
+	if got := <-c; !s.statelessCompare(got, want, nothing, nothing).Equal() {
 		// To avoid false-positives with non-reflexive equality operations,
 		// we sanity check whether a value is equal to itself.
-		if !s.statelessCompare(want, want).Equal() {
+		if !s.statelessCompare(want, want, nothing, nothing).Equal() {
 			return want
 		}
 		fn := getFuncName(f.Pointer())
@@ -392,14 +392,14 @@ func sanitizeValue(v reflect.Value, t reflect.Type) reflect.Value {
 	return v
 }
 
-func (s *state) compareArray(vx, vy reflect.Value, t reflect.Type) {
-	step := &sliceIndex{pathStep{t.Elem()}, 0, 0}
+func (s *state) compareArray(vx, vy, parentX, parentY reflect.Value, t reflect.Type) {
+	step := &sliceIndex{pathStep{t.Elem(), parentX, parentY}, 0, 0}
 	s.curPath.push(step)
 
 	// Compute an edit-script for slices vx and vy.
 	es := diff.Difference(vx.Len(), vy.Len(), func(ix, iy int) diff.Result {
 		step.xkey, step.ykey = ix, iy
-		return s.statelessCompare(vx.Index(ix), vy.Index(iy))
+		return s.statelessCompare(vx.Index(ix), vy.Index(iy), vx, vy)
 	})
 
 	// Report the entire slice as is if the arrays are of primitive kind,
@@ -434,7 +434,7 @@ func (s *state) compareArray(vx, vy reflect.Value, t reflect.Type) {
 			if e == diff.Identity {
 				s.report(true, vx.Index(ix), vy.Index(iy))
 			} else {
-				s.compareAny(vx.Index(ix), vy.Index(iy))
+				s.compareAny(vx.Index(ix), vy.Index(iy), vx, vy)
 			}
 			ix++
 			iy++
@@ -444,7 +444,7 @@ func (s *state) compareArray(vx, vy reflect.Value, t reflect.Type) {
 	return
 }
 
-func (s *state) compareMap(vx, vy reflect.Value, t reflect.Type) {
+func (s *state) compareMap(vx, vy, parentX, parentY reflect.Value, t reflect.Type) {
 	if vx.IsNil() || vy.IsNil() {
 		s.report(vx.IsNil() && vy.IsNil(), vx, vy)
 		return
@@ -452,7 +452,7 @@ func (s *state) compareMap(vx, vy reflect.Value, t reflect.Type) {
 
 	// We combine and sort the two map keys so that we can perform the
 	// comparisons in a deterministic order.
-	step := &mapIndex{pathStep: pathStep{t.Elem()}}
+	step := &mapIndex{pathStep: pathStep{t.Elem(), parentX, parentY}}
 	s.curPath.push(step)
 	defer s.curPath.pop()
 	for _, k := range value.SortKeys(append(vx.MapKeys(), vy.MapKeys()...)) {
@@ -461,7 +461,7 @@ func (s *state) compareMap(vx, vy reflect.Value, t reflect.Type) {
 		vvy := vy.MapIndex(k)
 		switch {
 		case vvx.IsValid() && vvy.IsValid():
-			s.compareAny(vvx, vvy)
+			s.compareAny(vvx, vvy, vx, vy)
 		case vvx.IsValid() && !vvy.IsValid():
 			s.report(false, vvx, nothing)
 		case !vvx.IsValid() && vvy.IsValid():
@@ -476,7 +476,7 @@ func (s *state) compareMap(vx, vy reflect.Value, t reflect.Type) {
 	}
 }
 
-func (s *state) compareStruct(vx, vy reflect.Value, t reflect.Type) {
+func (s *state) compareStruct(vx, vy, parentX, parentY reflect.Value, t reflect.Type) {
 	var vax, vay reflect.Value // Addressable versions of vx and vy
 
 	step := &structField{}
@@ -487,6 +487,8 @@ func (s *state) compareStruct(vx, vy reflect.Value, t reflect.Type) {
 		vvy := vy.Field(i)
 		step.typ = t.Field(i).Type
 		step.name = t.Field(i).Name
+		step.parentX = parentX
+		step.parentY = parentY
 		step.idx = i
 		step.unexported = !isExported(step.name)
 		if step.unexported {
@@ -504,7 +506,7 @@ func (s *state) compareStruct(vx, vy reflect.Value, t reflect.Type) {
 			step.pvy = vay
 			step.field = t.Field(i)
 		}
-		s.compareAny(vvx, vvy)
+		s.compareAny(vvx, vvy, vx, vy)
 	}
 }
 

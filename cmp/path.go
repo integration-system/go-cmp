@@ -31,6 +31,8 @@ type (
 		String() string
 		Type() reflect.Type // Resulting type after performing the path step
 		ToJSON() string
+		ParentX() reflect.Value
+		ParentY() reflect.Value
 		isPathStep()
 	}
 
@@ -142,6 +144,14 @@ func (pa Path) ToJSON() string {
 	return strings.TrimPrefix(strings.Join(ss, ""), ".")
 }
 
+func (pa Path) ParentX() reflect.Value {
+	return nothing
+}
+
+func (pa Path) ParentY() reflect.Value {
+	return nothing
+}
+
 // GoString returns the path to a specific node using Go syntax.
 //
 // For example:
@@ -196,7 +206,9 @@ func (pa Path) GoString() string {
 
 type (
 	pathStep struct {
-		typ reflect.Type
+		typ     reflect.Type
+		parentX reflect.Value
+		parentY reflect.Value
 	}
 
 	sliceIndex struct {
@@ -231,7 +243,9 @@ type (
 	}
 )
 
-func (ps pathStep) Type() reflect.Type { return ps.typ }
+func (ps pathStep) Type() reflect.Type     { return ps.typ }
+func (ps pathStep) ParentX() reflect.Value { return ps.parentX }
+func (ps pathStep) ParentY() reflect.Value { return ps.parentY }
 func (ps pathStep) String() string {
 	if ps.typ == nil {
 		return "<nil>"

@@ -39,7 +39,7 @@ type applicableOption interface {
 	Option
 
 	// apply executes the option, which may mutate s or panic.
-	apply(s *state, vx, vy reflect.Value)
+	apply(s *state, vx, vy, parentX, parentY reflect.Value)
 }
 
 // coreOption represents the following types:
@@ -84,7 +84,7 @@ func (opts Options) filter(s *state, vx, vy reflect.Value, t reflect.Type) (out 
 	return out
 }
 
-func (opts Options) apply(s *state, _, _ reflect.Value) {
+func (opts Options) apply(s *state, _, _, _, _ reflect.Value) {
 	const warning = "ambiguous set of applicable options"
 	const help = "consider using filters to ensure at most one Comparer or Transformer may apply"
 	var ss []string
@@ -195,7 +195,7 @@ type ignore struct{ core }
 
 func (ignore) isFiltered() bool                                                     { return false }
 func (ignore) filter(_ *state, _, _ reflect.Value, _ reflect.Type) applicableOption { return ignore{} }
-func (ignore) apply(_ *state, _, _ reflect.Value)                                   { return }
+func (ignore) apply(_ *state, _, _, _, _ reflect.Value)                             { return }
 func (ignore) String() string                                                       { return "Ignore()" }
 
 // invalid is a sentinel Option type to indicate that some options could not
@@ -203,7 +203,7 @@ func (ignore) String() string                                                   
 type invalid struct{ core }
 
 func (invalid) filter(_ *state, _, _ reflect.Value, _ reflect.Type) applicableOption { return invalid{} }
-func (invalid) apply(s *state, _, _ reflect.Value) {
+func (invalid) apply(s *state, _, _, _, _ reflect.Value) {
 	const help = "consider using AllowUnexported or cmpopts.IgnoreUnexported"
 	panic(fmt.Sprintf("cannot handle unexported field: %#v\n%s", s.curPath, help))
 }
@@ -267,15 +267,15 @@ func (tr *transformer) filter(s *state, _, _ reflect.Value, t reflect.Type) appl
 	return nil
 }
 
-func (tr *transformer) apply(s *state, vx, vy reflect.Value) {
+func (tr *transformer) apply(s *state, vx, vy, parentX, parentY reflect.Value) {
 	// Update path before calling the Transformer so that dynamic checks
 	// will use the updated path.
-	s.curPath.push(&transform{pathStep{tr.fnc.Type().Out(0)}, tr})
+	s.curPath.push(&transform{pathStep{tr.fnc.Type().Out(0), parentX, parentY}, tr})
 	defer s.curPath.pop()
 
 	vx = s.callTRFunc(tr.fnc, vx)
 	vy = s.callTRFunc(tr.fnc, vy)
-	s.compareAny(vx, vy)
+	s.compareAny(vx, vy, parentX, parentY)
 }
 
 func (tr transformer) String() string {
@@ -321,7 +321,7 @@ func (cm *comparer) filter(_ *state, _, _ reflect.Value, t reflect.Type) applica
 	return nil
 }
 
-func (cm *comparer) apply(s *state, vx, vy reflect.Value) {
+func (cm *comparer) apply(s *state, vx, vy, parentX, parentY reflect.Value) {
 	eq := s.callTTBFunc(cm.fnc, vx, vy)
 	s.report(eq, vx, vy)
 }
