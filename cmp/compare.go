@@ -266,13 +266,13 @@ func (s *state) compareAny(vx, vy, parentX, parentY reflect.Value) {
 		}
 		fallthrough
 	case reflect.Array:
-		s.compareArray(vx, vy, parentX, parentY, t)
+		s.compareArray(vx, vy, vx, vy, t)
 		return
 	case reflect.Map:
-		s.compareMap(vx, vy, parentX, parentY, t)
+		s.compareMap(vx, vy, vx, vy, t)
 		return
 	case reflect.Struct:
-		s.compareStruct(vx, vy, parentX, parentY, t)
+		s.compareStruct(vx, vy, vx, vy, t)
 		return
 	default:
 		panic(fmt.Sprintf("%v kind not handled", t.Kind()))
